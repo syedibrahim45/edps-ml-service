@@ -99,8 +99,11 @@ def run_federated_simulation(
 
     global_weights = np.zeros(len(FEATURE_NAMES), dtype=float)
     global_intercept = 0.0
+    test_matrix = _scale_features(test_features)
+    test_truth = test_labels.to_numpy(dtype=int)
+    per_round_metrics = []
 
-    for _ in range(rounds):
+    for round_number in range(1, rounds + 1):
         client_parameters = []
         for client_indices in clients:
             local_weights = global_weights.copy()
@@ -129,28 +132,44 @@ def run_federated_simulation(
             client_parameters
         )
 
-    test_matrix = _scale_features(test_features)
+        test_probabilities = 1.0 / (
+            1.0
+            + np.exp(
+                -np.clip(
+                    test_matrix @ global_weights + global_intercept,
+                    -35,
+                    35,
+                )
+            )
+        )
+        test_predictions = (test_probabilities >= 0.5).astype(int)
+        per_round_metrics.append(
+            {
+                "round": round_number,
+                "accuracy": accuracy_score(test_truth, test_predictions),
+                "precision_class_1": precision_score(
+                    test_truth, test_predictions, pos_label=1, zero_division=0
+                ),
+                "recall_class_1": recall_score(
+                    test_truth, test_predictions, pos_label=1, zero_division=0
+                ),
+                "f1_class_1": f1_score(
+                    test_truth, test_predictions, pos_label=1, zero_division=0
+                ),
+                "confusion_matrix_labels_0_1": confusion_matrix(
+                    test_truth, test_predictions, labels=[0, 1]
+                ).tolist(),
+                "global_parameter_l2_norm": float(np.linalg.norm(global_weights)),
+            }
+        )
+
     test_probabilities = 1.0 / (
         1.0 + np.exp(-np.clip(test_matrix @ global_weights + global_intercept, -35, 35))
     )
     test_predictions = (test_probabilities >= 0.5).astype(int)
     test_truth = test_labels.to_numpy(dtype=int)
 
-    return {
-        "method": "FedAvg",
-        "model": "binary logistic regression",
-        "client_count": client_count,
-        "rounds": rounds,
-        "local_epochs": local_epochs,
-        "aggregation": "sample-count-weighted arithmetic mean of local coefficients and intercepts",
-        "preprocessing": "fixed public feature bounds; no global data-fitted scaler",
-        "training_rows": len(train_features),
-        "test_rows": len(test_features),
-        "client_rows": [len(indices) for indices in clients],
-        "test_class_counts": test_labels.value_counts().sort_index().to_dict(),
-        "confusion_matrix_labels_0_1": confusion_matrix(
-            test_truth, test_predictions, labels=[0, 1]
-        ).tolist(),
+    final_evaluation_metrics = {
         "accuracy": accuracy_score(test_truth, test_predictions),
         "precision_class_1": precision_score(
             test_truth, test_predictions, pos_label=1, zero_division=0
@@ -161,6 +180,31 @@ def run_federated_simulation(
         "f1_class_1": f1_score(
             test_truth, test_predictions, pos_label=1, zero_division=0
         ),
+        "confusion_matrix_labels_0_1": confusion_matrix(
+            test_truth, test_predictions, labels=[0, 1]
+        ).tolist(),
+    }
+
+    return {
+        "status": "completed",
+        "method": "FedAvg",
+        "model": "binary logistic regression",
+        "simulation_data": "synthetic",
+        "client_count": client_count,
+        "rounds": rounds,
+        "local_epochs": local_epochs,
+        "aggregation": "sample-count-weighted arithmetic mean of local coefficients and intercepts",
+        "preprocessing": "fixed public feature bounds; no global data-fitted scaler",
+        "training_rows": len(train_features),
+        "test_rows": len(test_features),
+        "client_rows": [len(indices) for indices in clients],
+        "per_round_metrics": per_round_metrics,
+        "final_evaluation_metrics": final_evaluation_metrics,
+        "test_class_counts": test_labels.value_counts().sort_index().to_dict(),
+        "confusion_matrix_labels_0_1": confusion_matrix(
+            test_truth, test_predictions, labels=[0, 1]
+        ).tolist(),
+        **final_evaluation_metrics,
         "global_coefficients": global_weights.tolist(),
         "global_intercept": global_intercept,
         "interpretation": (

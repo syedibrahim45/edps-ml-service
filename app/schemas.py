@@ -33,4 +33,54 @@ class GlobalFeatureImportanceResponse(BaseModel):
     scoring: Literal["neg_log_loss"]
     sample_count: int
     feature_importance: list[FeatureImportanceItem]
+    description: str
     note: str
+
+
+class IndividualFeatureEffect(BaseModel):
+    feature: str
+    input_value: float
+    reference_value: float
+    probability_with_input: float
+    probability_with_reference: float
+    probability_delta: float
+
+
+class IndividualExplanationResponse(BaseModel):
+    scope: Literal["individual"]
+    method: Literal["single_feature_replacement_sensitivity"]
+    prediction: PredictionResponse
+    reference_population: str
+    feature_effects: list[IndividualFeatureEffect]
+    note: str
+
+
+class EvaluationMetrics(BaseModel):
+    accuracy: float
+    precision_class_1: float
+    recall_class_1: float
+    f1_class_1: float
+    confusion_matrix_labels_0_1: list[list[int]]
+
+
+class FederatedRoundMetrics(EvaluationMetrics):
+    round: int
+    global_parameter_l2_norm: float
+
+
+class FederatedSimulationResponse(BaseModel):
+    status: Literal["completed"]
+    method: Literal["FedAvg"]
+    model: Literal["binary logistic regression"]
+    simulation_data: Literal["synthetic"]
+    client_count: int
+    rounds: int
+    local_epochs: int
+    aggregation: str
+    preprocessing: str
+    training_rows: int
+    test_rows: int
+    client_rows: list[int]
+    per_round_metrics: list[FederatedRoundMetrics]
+    final_evaluation_metrics: EvaluationMetrics
+    interpretation: str

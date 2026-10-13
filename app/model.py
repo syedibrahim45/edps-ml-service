@@ -112,9 +112,63 @@ def global_feature_importance() -> dict:
         "scoring": "neg_log_loss",
         "sample_count": len(dataset),
         "feature_importance": importances,
+        "description": (
+            "Global permutation importance measures the change in negative log "
+            "loss when one feature is shuffled across the evaluation rows. A "
+            "larger positive value means shuffling that feature worsened this "
+            "model's loss on this synthetic dataset; it is not causal or "
+            "patient-specific."
+        ),
         "note": (
             "This is global feature importance calculated on the full synthetic "
             "dataset, not an explanation for an individual prediction or an "
             "independent validation result."
+        ),
+    }
+
+
+def individual_prediction_explanation(values: dict[str, float | int]) -> dict:
+    """Return single-feature replacement sensitivities, not additive attributions."""
+    if model is None:
+        raise ModelUnavailableError("The prediction model is unavailable.")
+
+    dataset = create_synthetic_dataset()
+    reference_values = dataset.loc[:, FEATURE_NAMES].median()
+    reference_values["gender"] = dataset["gender"].mode().iloc[0]
+    input_values = {name: values[name] for name in FEATURE_NAMES}
+    input_frame = pd.DataFrame([input_values], columns=FEATURE_NAMES)
+    positive_class_index = list(model.classes_).index(1)
+    input_probability = float(model.predict_proba(input_frame)[0][positive_class_index])
+    effects = []
+
+    for feature_name in FEATURE_NAMES:
+        replaced_values = input_values.copy()
+        replaced_values[feature_name] = float(reference_values[feature_name])
+        replaced_frame = pd.DataFrame([replaced_values], columns=FEATURE_NAMES)
+        reference_probability = float(
+            model.predict_proba(replaced_frame)[0][positive_class_index]
+        )
+        effects.append(
+            {
+                "feature": feature_name,
+                "input_value": float(input_values[feature_name]),
+                "reference_value": float(reference_values[feature_name]),
+                "probability_with_input": input_probability,
+                "probability_with_reference": reference_probability,
+                "probability_delta": input_probability - reference_probability,
+            }
+        )
+
+    return {
+        "scope": "individual",
+        "method": "single_feature_replacement_sensitivity",
+        "prediction": predict_disease(**input_values),
+        "reference_population": "per-feature median/mode of the 20 synthetic training rows",
+        "feature_effects": effects,
+        "note": (
+            "Each delta compares the supplied input with a synthetic median/mode "
+            "replacement for one feature while holding the other inputs fixed. "
+            "Effects are not additive, causal, clinically meaningful, or a "
+            "Shapley explanation."
         ),
     }

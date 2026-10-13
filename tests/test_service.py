@@ -67,6 +67,24 @@ def test_model_loader_rejects_incompatible_artifact(tmp_path) -> None:
         load_model(artifact_path)
 
 
+def test_model_loader_reports_missing_or_corrupt_artifacts(tmp_path) -> None:
+    missing_path = tmp_path / "missing.joblib"
+    with pytest.raises(FileNotFoundError):
+        load_model(missing_path)
+
+    corrupt_path = tmp_path / "corrupt.joblib"
+    corrupt_path.write_bytes(b"not a serialized model")
+    with pytest.raises(Exception):
+        load_model(corrupt_path)
+
+
+def test_root_endpoint_is_available() -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "EDPS ML Service is running"}
+
+
 def test_health_and_prediction_response_contract() -> None:
     health_response = client.get("/health")
     prediction_response = client.post("/predict", json=valid_request())
@@ -127,6 +145,29 @@ def test_prediction_endpoint_rejects_non_finite_json_number() -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("age", "35"),
+        ("gender", "0"),
+        ("blood_pressure", "125"),
+        ("age", 121),
+        ("blood_pressure", 301),
+        ("glucose", 1001),
+        ("bmi", 101),
+        ("heart_rate", 251),
+        ("cholesterol", 1001),
+    ],
+)
+def test_prediction_endpoint_rejects_wrong_types_and_out_of_range_values(
+    field, value
+) -> None:
+    response = client.post("/predict", json={**valid_request(), field: value})
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+
+
 def test_global_explainability_is_calculated_and_not_per_prediction() -> None:
     response = client.get("/explainability/global")
 
@@ -136,8 +177,21 @@ def test_global_explainability_is_calculated_and_not_per_prediction() -> None:
     assert result["method"] == "permutation_importance"
     assert result["scoring"] == "neg_log_loss"
     assert result["sample_count"] == 20
+    assert "Global permutation importance" in result["description"]
     assert {item["feature"] for item in result["feature_importance"]} == set(FEATURE_NAMES)
     assert "not an explanation for an individual prediction" in result["note"]
+
+
+def test_individual_explanation_contract_is_separate_from_global_importance() -> None:
+    response = client.post("/explainability/individual", json=valid_request())
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["scope"] == "individual"
+    assert result["method"] == "single_feature_replacement_sensitivity"
+    assert set(result["prediction"]) == {"prediction", "disease", "probability"}
+    assert [item["feature"] for item in result["feature_effects"]] == list(FEATURE_NAMES)
+    assert all(-1 <= item["probability_delta"] <= 1 for item in result["feature_effects"])
 
 
 def test_training_is_reproducible_and_does_not_replace_inference_model() -> None:
@@ -153,6 +207,8 @@ def test_training_is_reproducible_and_does_not_replace_inference_model() -> None
     assert first_metrics["train_rows"] == 16
     assert first_metrics["test_rows"] == 4
     assert first_metrics["confusion_matrix_labels_0_1"] == [[2, 0], [0, 2]]
+    assert first_metrics["class_counts"] == {0: 8, 1: 12}
+    assert first_metrics["feature_distribution"]["age"]["minimum"] == 23
     assert before == after
 
 
@@ -180,3 +236,28 @@ def test_federated_simulation_is_reproducible_and_partitions_training_data() -> 
     assert sum(first["client_rows"]) == first["training_rows"] == 16
     assert first["test_rows"] == 4
     assert len(first["global_coefficients"]) == len(FEATURE_NAMES)
+    assert first["simulation_data"] == "synthetic"
+    assert len(first["per_round_metrics"]) == first["rounds"]
+    assert all(item["global_parameter_l2_norm"] > 0 for item in first["per_round_metrics"])
+    assert first["final_evaluation_metrics"]["confusion_matrix_labels_0_1"] == [[0, 2], [0, 2]]
+
+
+def test_federated_dashboard_endpoint_returns_cached_structured_results(monkeypatch) -> None:
+    calls = []
+    result = run_federated_simulation(rounds=1)
+
+    def fake_simulation(**kwargs):
+        calls.append(kwargs)
+        return result
+
+    monkeypatch.setattr(main_module, "run_federated_simulation", fake_simulation)
+    main_module._cached_federated_results.cache_clear()
+    first = client.get("/federated/results")
+    second = client.get("/federated/results")
+    main_module._cached_federated_results.cache_clear()
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["simulation_data"] == "synthetic"
+    assert first.json()["status"] == "completed"
+    assert first.json()["per_round_metrics"] == second.json()["per_round_metrics"]
+    assert len(calls) == 1

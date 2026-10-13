@@ -25,10 +25,14 @@ default; it does **not** replace the API model. To explicitly write a candidate
 artifact, pass `--output models/candidate_disease_model.joblib` and review it
 before any deployment change.
 
-Observed output in the current environment (scikit-learn 1.9.0): 16 training
-rows and 4 test rows (2 per class); confusion matrix `[[2, 0], [0, 2]]`; accuracy
-1.0; class-1 precision 1.0, recall 1.0, and F1 1.0. These are descriptive
-results on four synthetic test records, **not reliable performance estimates**.
+Observed output in the current environment (scikit-learn 1.9.0): the training
+routine creates a new candidate forest and evaluates 16 training rows and 4
+test rows (2 per class); confusion matrix `[[2, 0], [0, 2]]`; accuracy 1.0;
+class-1 precision 1.0, recall 1.0, and F1 1.0. The active `disease_model.pkl`
+was separately checked against the same split and produced those same metrics.
+These are descriptive results on four synthetic test records, **not reliable
+performance estimates**. Full executed results are recorded in
+[`ML_TEST_REPORT.md`](ML_TEST_REPORT.md).
 
 ## Experimental Federated Simulation
 
@@ -58,6 +62,20 @@ it is not a causal effect or clinical relevance measure. This is not an
 independent validation set and not a per-prediction explanation. No individual
 explanation is returned because the service does not calculate one. Importance
 values on this tiny synthetic set are exploratory only.
+
+`POST /explainability/individual` accepts the same seven-field JSON request as
+`/predict` and returns the ordinary prediction plus one-feature replacement
+sensitivity values. Each field compares the input probability with the
+probability after replacing just that input with that field's synthetic
+median/mode while leaving the other values fixed. These effects are not
+additive, causal, SHAP values, or medical explanations.
+
+`GET /federated/results` returns the default 3-client, 10-round experimental
+run, with metrics after every communication round and final held-out metrics.
+Its result is cached in-process after the first request, so later dashboard
+polls do not retrain the experiment. This is a single-process synthetic
+simulation; its clients are not hospitals, and its logistic-regression FedAvg
+model is not the Random Forest used by `/predict`.
 
 ## API Contract
 
@@ -96,6 +114,13 @@ Successful `POST /predict` response:
 label (`Low Risk` or `High Risk`), and `probability` is the model's class-1
 probability from 0 through 1. These labels and probabilities are prototype
 outputs, not diagnoses or calibrated clinical risk.
+
+The request names and numeric types above are the Spring Boot integration
+contract. `gender` accepts only integer `0` or `1`; this service's dataset does
+not define which value represents Male or Female. Spring Boot must apply the
+same agreed mapping consistently. The `probability` field is a fraction in
+`[0, 1]`, not a percentage, and all three existing response keys remain
+unchanged.
 
 `GET /health` preserves `status` and `service` and adds `model_status`:
 
@@ -142,10 +167,11 @@ Optionally save a candidate artifact for review:
 python -m app.train_model --output models/candidate_disease_model.joblib
 ```
 
-Run the tests:
+Run the tests (including API, model compatibility, explainability, and FedAvg
+checks):
 
 ```powershell
-python -m pytest
+python -m pytest -v
 ```
 
 Run the experimental federated simulation:
@@ -161,3 +187,13 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
+
+## Academic and Clinical Limitations
+
+All example data is synthetic and the dataset contains only 20 hand-authored
+rows. No publicly licensed external dataset is included: none has been
+reviewed and approved for this prototype. Neither the prediction model nor
+the simulated experiment has clinical validation, representative population
+coverage, calibration evidence, privacy guarantees, or evidence of safe use in
+care. Do not submit real patient information or use outputs for diagnosis,
+triage, or treatment decisions.

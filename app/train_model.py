@@ -74,6 +74,15 @@ def train_and_evaluate(random_state: int = 42) -> tuple[RandomForestClassifier, 
     metrics = {
         "dataset": "20-record synthetic academic dataset; not clinical data",
         "dataset_rows": len(dataset),
+        "class_counts": target.value_counts().sort_index().to_dict(),
+        "feature_distribution": {
+            name: {
+                "minimum": float(features[name].min()),
+                "maximum": float(features[name].max()),
+                "mean": float(features[name].mean()),
+            }
+            for name in FEATURE_NAMES
+        },
         "train_rows": len(X_train),
         "test_rows": len(X_test),
         "random_state": random_state,
