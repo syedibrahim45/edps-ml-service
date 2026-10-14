@@ -103,6 +103,14 @@ def test_health_and_prediction_response_contract() -> None:
     assert 0 <= result["probability"] <= 1
 
 
+def test_identical_prediction_requests_are_reproducible() -> None:
+    first = client.post("/predict", json=valid_request())
+    second = client.post("/predict", json=valid_request())
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+
+
 def test_unavailable_model_is_reported_without_internal_details(monkeypatch) -> None:
     monkeypatch.setattr(main_module, "model", None)
     monkeypatch.setattr(model_module, "model", None)
@@ -110,11 +118,16 @@ def test_unavailable_model_is_reported_without_internal_details(monkeypatch) -> 
     health_response = client.get("/health")
     prediction_response = client.post("/predict", json=valid_request())
     explanation_response = client.get("/explainability/global")
+    individual_explanation_response = client.post(
+        "/explainability/individual",
+        json=valid_request(),
+    )
 
     assert health_response.json()["status"] == "DEGRADED"
     assert health_response.json()["model_status"] == "unavailable"
     assert prediction_response.status_code == 503
     assert explanation_response.status_code == 503
+    assert individual_explanation_response.status_code == 503
     assert "Traceback" not in prediction_response.text
 
 
@@ -169,9 +182,14 @@ def test_prediction_endpoint_rejects_wrong_types_and_out_of_range_values(
 
 
 def test_global_explainability_is_calculated_and_not_per_prediction() -> None:
+    model_module._cached_global_feature_importance.cache_clear()
     response = client.get("/explainability/global")
+    repeated_response = client.get("/explainability/global")
 
     assert response.status_code == 200
+    assert repeated_response.status_code == 200
+    assert repeated_response.json() == response.json()
+    assert model_module._cached_global_feature_importance.cache_info().misses == 1
     result = response.json()
     assert result["scope"] == "global"
     assert result["method"] == "permutation_importance"
@@ -191,6 +209,10 @@ def test_individual_explanation_contract_is_separate_from_global_importance() ->
     assert result["method"] == "single_feature_replacement_sensitivity"
     assert set(result["prediction"]) == {"prediction", "disease", "probability"}
     assert [item["feature"] for item in result["feature_effects"]] == list(FEATURE_NAMES)
+    assert result["prediction"] == client.post("/predict", json=valid_request()).json()
+    assert {
+        item["feature"]: item["input_value"] for item in result["feature_effects"]
+    } == {name: float(value) for name, value in valid_request().items()}
     assert all(-1 <= item["probability_delta"] <= 1 for item in result["feature_effects"])
 
 

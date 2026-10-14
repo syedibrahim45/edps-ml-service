@@ -55,20 +55,20 @@ comparison or performance conclusion.
 ## Explainability
 
 `GET /explainability/global` calculates global permutation importance using
-negative log loss on all 20 synthetic records and returns one measured
-probability-sensitivity score per feature. A larger positive score means
-shuffling that feature worsened log loss for this fitted model on this dataset;
-it is not a causal effect or clinical relevance measure. This is not an
-independent validation set and not a per-prediction explanation. No individual
-explanation is returned because the service does not calculate one. Importance
-values on this tiny synthetic set are exploratory only.
+negative log loss on all 20 synthetic records. Its deterministic result is
+cached in-process after the first calculation so dashboard polls do not repeat
+the calculation. A larger positive score means shuffling that feature
+worsened log loss for this fitted model on this dataset; it is not a causal
+effect or clinical relevance measure. This is not an independent validation
+set or a per-prediction explanation. Importance values on this tiny synthetic
+set are exploratory only.
 
 `POST /explainability/individual` accepts the same seven-field JSON request as
-`/predict` and returns the ordinary prediction plus one-feature replacement
-sensitivity values. Each field compares the input probability with the
-probability after replacing just that input with that field's synthetic
-median/mode while leaving the other values fixed. These effects are not
-additive, causal, SHAP values, or medical explanations.
+`/predict` and returns the ordinary prediction plus input-specific,
+one-feature replacement sensitivity values. Each field compares the input
+probability with the probability after replacing just that feature with its
+synthetic median/mode while leaving the other inputs fixed. These effects are
+not additive, causal, SHAP values, or medical explanations.
 
 `GET /federated/results` returns the default 3-client, 10-round experimental
 run, with metrics after every communication round and final held-out metrics.
@@ -76,6 +76,16 @@ Its result is cached in-process after the first request, so later dashboard
 polls do not retrain the experiment. This is a single-process synthetic
 simulation; its clients are not hospitals, and its logistic-regression FedAvg
 model is not the Random Forest used by `/predict`.
+
+## Service integration and deployment
+
+Use **React → Spring Boot → FastAPI**. Keep FastAPI on a private network and
+let Spring Boot map/validate frontend data, call the ML service, and translate
+its HTTP errors; do not expose FastAPI directly to the browser. See
+[`ML_API_CONTRACT.md`](ML_API_CONTRACT.md) for request/response shapes and
+backend timeout handling and [`DEPLOYMENT.md`](DEPLOYMENT.md) for Docker and
+local startup instructions. The included Dockerfile runs as a non-root user
+and copies only the active model artifact.
 
 ## API Contract
 

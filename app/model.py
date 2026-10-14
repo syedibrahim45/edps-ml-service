@@ -1,3 +1,5 @@
+import logging
+from functools import lru_cache
 from pathlib import Path
 
 import joblib
@@ -10,6 +12,7 @@ from app.train_model import FEATURE_NAMES, create_synthetic_dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = PROJECT_ROOT / "models" / "disease_model.pkl"
+logger = logging.getLogger(__name__)
 
 
 def load_model(model_path: Path = MODEL_PATH):
@@ -35,6 +38,10 @@ try:
 except Exception as error:
     model = None
     MODEL_LOAD_ERROR = type(error).__name__
+    logger.error(
+        "Prediction model could not be loaded (%s); service health will be degraded.",
+        MODEL_LOAD_ERROR,
+    )
 
 
 class ModelUnavailableError(RuntimeError):
@@ -81,6 +88,11 @@ def global_feature_importance() -> dict:
     if model is None:
         raise ModelUnavailableError("The prediction model is unavailable.")
 
+    return _cached_global_feature_importance()
+
+
+@lru_cache(maxsize=1)
+def _cached_global_feature_importance() -> dict:
     dataset = create_synthetic_dataset()
     features = dataset.loc[:, FEATURE_NAMES]
     target = dataset["disease"]

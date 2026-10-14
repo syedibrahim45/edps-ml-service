@@ -1,0 +1,10 @@
+.git
+.pytest_cache
+venv
+.venv
+__pycache__
+*.py[cod]
+tests
+.github
+models/disease_model.joblib
+models/candidate_*.joblib
