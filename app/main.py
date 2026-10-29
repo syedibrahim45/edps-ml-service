@@ -5,6 +5,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.schemas import (
+    DiabetesPredictionRequest,
+    DiabetesPredictionResponse,
     GlobalFeatureImportanceResponse,
     IndividualExplanationResponse,
     FederatedSimulationResponse,
@@ -19,6 +21,7 @@ from app.model import (
     predict_disease,
 )
 from app.federated_simulation import run_federated_simulation
+from app import diabetes_model as diabetes_model_service
 
 
 app = FastAPI(
@@ -67,6 +70,15 @@ def health():
     }
 
 
+@app.get("/health/diabetes")
+def diabetes_health():
+    available = diabetes_model_service.diabetes_model is not None
+    return {
+        "status": "UP" if available else "DEGRADED",
+        "model_status": "ready" if available else "unavailable",
+    }
+
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest):
     try:
@@ -86,6 +98,20 @@ def predict(request: PredictionRequest):
         ) from error
 
     return result
+
+
+@app.post(
+    "/predict/diabetes",
+    response_model=DiabetesPredictionResponse,
+)
+def predict_diabetes(request: DiabetesPredictionRequest):
+    try:
+        return diabetes_model_service.predict_diabetes(request)
+    except diabetes_model_service.DiabetesModelUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Diabetes prediction model is unavailable.",
+        ) from error
 
 
 @app.get(

@@ -2,3 +2,5 @@ venv/
 .venv/
 __pycache__/
 *.py[cod]
+/data/raw/
+/models/diabetes_binary/

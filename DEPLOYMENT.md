@@ -12,7 +12,13 @@ an uploaded, user-supplied, or otherwise untrusted model file.
 The active artifact SHA-256 is
 `1ACA8A37CE0CD4C070D0E9F4442AC698086D61AF699AB4C1B18F2E591A5C0888`.
 `models/disease_model.joblib` is retained but is not used by the service.
-The Docker image copies only `disease_model.pkl`. Training does not replace
+The Docker image copies `disease_model.pkl`. The separate diabetes model and
+metadata are Git-ignored and are not packaged into the image; to enable
+`POST /predict/diabetes`, provide the reviewed, trusted files under
+`models/diabetes_binary/` as a read-only mount at `/app/models/diabetes_binary`.
+Without that mount, diabetes readiness is unavailable and that endpoint
+returns HTTP 503; the generic service remains available. The raw diabetes
+dataset is not copied into the image. Training does not replace
 the active artifact unless an explicit output path is provided; review and
 validate candidate artifacts before changing the deployment input.
 
@@ -61,6 +67,8 @@ The image uses Python 3.13, installs the pinned packages from
 `requirements.txt`, runs Uvicorn on port 8000 as an unprivileged user, and
 defines a health check that requires the model to be ready. Container health
 is visible through `docker inspect`; the HTTP health route remains `/health`.
+The optional diabetes readiness status is separately available at
+`/health/diabetes`; the generic `/health` response remains unchanged.
 
 For production, publish the image to a private registry and place Spring Boot
 and FastAPI on a private network. Terminate public TLS and authentication at

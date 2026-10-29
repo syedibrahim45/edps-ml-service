@@ -3,6 +3,45 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class DiabetesPredictionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    HighBP: int = Field(strict=True, ge=0, le=1)
+    HighChol: int = Field(strict=True, ge=0, le=1)
+    CholCheck: int = Field(strict=True, ge=0, le=1)
+    Smoker: int = Field(strict=True, ge=0, le=1)
+    Stroke: int = Field(strict=True, ge=0, le=1)
+    HeartDiseaseorAttack: int = Field(strict=True, ge=0, le=1)
+    PhysActivity: int = Field(strict=True, ge=0, le=1)
+    Fruits: int = Field(strict=True, ge=0, le=1)
+    Veggies: int = Field(strict=True, ge=0, le=1)
+    HvyAlcoholConsump: int = Field(strict=True, ge=0, le=1)
+    AnyHealthcare: int = Field(strict=True, ge=0, le=1)
+    NoDocbcCost: int = Field(strict=True, ge=0, le=1)
+    DiffWalk: int = Field(strict=True, ge=0, le=1)
+    Sex: int = Field(strict=True, ge=0, le=1)
+    BMI: float = Field(strict=True, allow_inf_nan=False)
+    GenHlth: int = Field(strict=True, ge=1, le=5)
+    MentHlth: int = Field(strict=True, ge=0, le=30)
+    PhysHlth: int = Field(strict=True, ge=0, le=30)
+    Age: int = Field(strict=True, ge=1, le=13)
+    Education: int = Field(strict=True, ge=1, le=6)
+    Income: int = Field(strict=True, ge=1, le=8)
+
+
+class DiabetesPredictionResponse(BaseModel):
+    predicted_class: Literal[0, 1]
+    predicted_label: Literal[
+        "No diabetes reported in dataset label",
+        "Prediabetes or diabetes reported in dataset label",
+    ]
+    positive_class_score: float = Field(ge=0, le=1, allow_inf_nan=False)
+    threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
+    model_id: str
+    model_version: str
+    disclaimer: str
+
+
 class PredictionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 

@@ -11,6 +11,88 @@ by `app.model`. The separate `models/disease_model.joblib` file is retained but
 is not the artifact used by the API. Model paths are resolved from the source
 tree, not the process working directory.
 
+The separate experimental diabetes model is loaded by `app.diabetes_model`
+and served only by `POST /predict/diabetes`. It does not replace or serve as a
+fallback for the generic model. It classifies the dataset-defined binary
+survey label (0: no diabetes reported; 1: prediabetes or diabetes reported),
+not a clinical diagnosis. Its class-1 score is not a clinically calibrated
+probability, and its selected threshold is loaded from the diabetes training
+metadata. See [`ML_API_CONTRACT.md`](ML_API_CONTRACT.md) for all 21 required
+survey inputs, allowed values, response example, and error behavior.
+
+The diabetes artifact is a trusted joblib/scikit-learn serialization. The
+loader checks metadata consistency and the artifact SHA-256 before loading;
+never replace it with an uploaded or otherwise untrusted model. Training-time
+dependency versions were not recorded. The ignored
+`models/diabetes_binary/compatibility.json` records only the versions verified
+in the current environment, not claimed training versions. The Docker image
+does not package the ignored diabetes artifacts or raw dataset; a deployment
+that enables this endpoint must provide the trusted diabetes artifact bundle
+as a read-only mount at `models/diabetes_binary/`.
+
+### Diabetes endpoint
+
+`POST /predict/diabetes` requires these 21 survey features:
+
+```json
+{
+  "HighBP": 1,
+  "HighChol": 1,
+  "CholCheck": 1,
+  "Smoker": 0,
+  "Stroke": 0,
+  "HeartDiseaseorAttack": 0,
+  "PhysActivity": 1,
+  "Fruits": 1,
+  "Veggies": 1,
+  "HvyAlcoholConsump": 0,
+  "AnyHealthcare": 1,
+  "NoDocbcCost": 0,
+  "DiffWalk": 0,
+  "Sex": 0,
+  "BMI": 27.5,
+  "GenHlth": 3,
+  "MentHlth": 0,
+  "PhysHlth": 0,
+  "Age": 9,
+  "Education": 4,
+  "Income": 5
+}
+```
+
+Binary fields accept strict integer codes 0 or 1. `GenHlth` accepts 1–5;
+`MentHlth` and `PhysHlth` accept 0–30; age bucket `Age` accepts 1–13;
+`Education` accepts 1–6; and `Income` accepts 1–8. All fields are required,
+and extra fields, numeric strings, booleans, fractional codes, and non-finite
+numbers are rejected with HTTP 422. BMI accepts a finite numeric value without
+silent coercion or a configured range limit; the dataset's observed 12–98
+range is not a clinical threshold.
+
+The response includes the dataset-defined class and score:
+
+```json
+{
+  "predicted_class": 0,
+  "predicted_label": "No diabetes reported in dataset label",
+  "positive_class_score": 0.42,
+  "threshold": 0.6447012298480324,
+  "model_id": "logistic_regression_balanced",
+  "model_version": "cdc-brfss2015-binary-v1",
+  "disclaimer": "Experimental screening output for a survey dataset label only; not a clinical diagnosis or clinically validated risk estimate."
+}
+```
+
+Class 0 means no diabetes was reported in the dataset label; class 1 means
+prediabetes or diabetes was reported in that label. Class 1 is not a confirmed
+diagnosis. `positive_class_score` is not a clinically calibrated probability.
+The predicted class is 1 when the score is greater than or equal to the
+validation-selected threshold read from trusted metadata. If the diabetes
+model is unavailable, the endpoint returns generic HTTP 503 and does not fall
+back to the generic EDPS model. `GET /health/diabetes` reports the separate
+model's readiness; the existing `GET /health` contract is unchanged. For the
+full request/response contract and compatibility caveats, see
+[`ML_API_CONTRACT.md`](ML_API_CONTRACT.md).
+
 `app.train_model.create_synthetic_dataset()` contains the original 20
 hand-authored synthetic records (8 label 0, 12 label 1). They are illustrative
 values and labels, not observations from patients, a validated clinical
@@ -84,8 +166,9 @@ let Spring Boot map/validate frontend data, call the ML service, and translate
 its HTTP errors; do not expose FastAPI directly to the browser. See
 [`ML_API_CONTRACT.md`](ML_API_CONTRACT.md) for request/response shapes and
 backend timeout handling and [`DEPLOYMENT.md`](DEPLOYMENT.md) for Docker and
-local startup instructions. The included Dockerfile runs as a non-root user
-and copies only the active model artifact.
+local startup instructions. The included Dockerfile runs as a non-root user,
+copies the generic active model and the separate trusted diabetes model files,
+and does not include the raw diabetes dataset.
 
 ## API Contract
 

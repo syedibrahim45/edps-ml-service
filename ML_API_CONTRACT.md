@@ -9,6 +9,91 @@ The examples use `http://ml-service:8000` as the FastAPI base URL on the
 Spring Boot network. Successful responses are JSON. The `/predict` request
 and response contract is unchanged.
 
+## Experimental diabetes screening
+
+`POST /predict/diabetes` is a separate experimental endpoint. It uses the
+locally bundled diabetes-specific model and does not fall back to the generic
+`/predict` model. Keep FastAPI on the private Spring Boot network; the browser
+should call Spring Boot, not this service.
+
+The request requires exactly these 21 feature fields, in the trained pipeline
+order:
+
+```json
+{
+  "HighBP": 1,
+  "HighChol": 1,
+  "CholCheck": 1,
+  "Smoker": 0,
+  "Stroke": 0,
+  "HeartDiseaseorAttack": 0,
+  "PhysActivity": 1,
+  "Fruits": 1,
+  "Veggies": 1,
+  "HvyAlcoholConsump": 0,
+  "AnyHealthcare": 1,
+  "NoDocbcCost": 0,
+  "DiffWalk": 0,
+  "Sex": 0,
+  "BMI": 27.5,
+  "GenHlth": 3,
+  "MentHlth": 0,
+  "PhysHlth": 0,
+  "Age": 9,
+  "Education": 4,
+  "Income": 5
+}
+```
+
+All properties are required; unknown properties, strings, booleans, invalid
+categories, and fractional categorical values are rejected with HTTP 422.
+Binary survey codes accept integer `0` or `1`. `GenHlth` accepts integers 1–5;
+`MentHlth` and `PhysHlth` accept 0–30; `Age` is an age bucket from 1–13;
+`Education` accepts 1–6; and `Income` accepts 1–8.
+
+`BMI` must be a finite JSON number. Strings, booleans, NaN, infinity, and
+malformed values are rejected, with no silent coercion. Although the dataset
+observed BMI values from 12 to 98, this is not a clinical validity range and
+the endpoint imposes no BMI range restriction.
+
+Example response:
+
+```json
+{
+  "predicted_class": 0,
+  "predicted_label": "No diabetes reported in dataset label",
+  "positive_class_score": 0.42,
+  "threshold": 0.6447012298480324,
+  "model_id": "logistic_regression_balanced",
+  "model_version": "cdc-brfss2015-binary-v1",
+  "disclaimer": "Experimental screening output for a survey dataset label only; not a clinical diagnosis or clinically validated risk estimate."
+}
+```
+
+Class 0 means **no diabetes reported in the dataset label**. Class 1 means
+**prediabetes or diabetes reported in the dataset label**; it must not be
+interpreted as a confirmed diagnosis. `positive_class_score` is the model's
+class-1 score, not a clinically calibrated probability. The returned class is
+1 when this score is greater than or equal to the threshold. The threshold is
+loaded from the trusted training metadata (currently approximately 0.6447),
+not from a client request.
+
+`GET /health/diabetes` reports the diabetes model's readiness independently
+of `GET /health`. If diabetes metadata or the trusted artifact is missing,
+hash-mismatched, or incompatible, diabetes health is `DEGRADED` and
+`POST /predict/diabetes` returns HTTP 503 with a generic error. It never uses
+the generic model as a substitute. The existing `/health` contract is
+unchanged.
+
+The diabetes model is a joblib/scikit-learn artifact and must remain trusted;
+never load user-supplied artifacts. Training-time dependency versions were
+not recorded. Current-environment compatibility was checked and versions are
+recorded in the ignored `models/diabetes_binary/compatibility.json`, but this
+does not prove which dependency versions originally created the artifact.
+Use the project-pinned dependencies and verify the artifact in the deployment
+image. This endpoint is an academic experiment, not a diagnosis or clinical
+decision tool.
+
 ## Health
 
 `GET /health`
